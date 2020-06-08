@@ -144,13 +144,6 @@ class TextBlock:
 
     def add_text(self, more):
         self.text += more + LINEBREAK
-        # if self.lines == 0:
-        #     self.text += more
-        #     self.lines += 1
-
-        # else:
-        #     self.text += LINEBREAK + more
-        #     self.lines += 1
 
     def eval(self, symbols):
         return True

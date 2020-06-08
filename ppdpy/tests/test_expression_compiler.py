@@ -1,8 +1,7 @@
 from unittest import TestCase
 
-from ppdpy.expression_compiler import lex, compile
+from ppdpy.expression_compiler import lex, compile, Id, Not, And, Or
 from ppdpy.exceptions import ExpressionSyntaxError
-from ppdpy.nodes import *
 
 
 class TestLex(TestCase):
