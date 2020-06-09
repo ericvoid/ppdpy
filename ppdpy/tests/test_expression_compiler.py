@@ -49,6 +49,23 @@ class TestLex(TestCase):
 
 
 class TestParse(TestCase):
+    def test_sanity(self):
+        """
+        Just checks if dataclass comparison works as expected.
+        """
+        self.assertEqual(Id('a'), Id('a'))
+        self.assertEqual(Not(Id('a')), Not(Id('a')))
+        self.assertEqual(And(Id('a'), Id('b')), And(Id('a'), Id('b')))
+        self.assertEqual(Or(Id('a'), Id('b')), Or(Id('a'), Id('b')))
+        self.assertEqual(And(Id('a'), Or(Id('b'), Id('C'))), And(Id('a'), Or(Id('b'), Id('C'))))
+
+        self.assertNotEqual(Id('a'), Id('b'))
+        self.assertNotEqual(Id('a'), Not(Id('a')))
+        self.assertNotEqual(And(Id('a'), Id('b')), Or(Id('a'), Id('b')))
+        self.assertNotEqual(And(Id('a'), Id('b')), And(Id('a'), Id('c')))
+        self.assertNotEqual(Or(Id('a'), Id('b')), Or(Id('a'), Id('c')))
+        self.assertNotEqual(And(Id('a'), Or(Id('b'), Id('C'))), Or(And(Id('a'), Id('b')), Id('C')))
+
     def test_simple(self):
         self.assertEqual(compile('a'), Id('a'))
         self.assertEqual(compile('A'), Id('A'))

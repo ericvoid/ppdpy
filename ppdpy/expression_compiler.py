@@ -210,11 +210,7 @@ def _is_id(token:str) -> bool:
 
 
 class Node:
-    def __eq__(self, other):
-        return _to_tuple(self) == _to_tuple(other)
-
-    def __ne__(self, other):
-        return not self == other
+    pass
 
 
 @dataclass
@@ -251,23 +247,6 @@ def evaluate(node, symbols):
 
     elif isinstance(node, Or):
         return evaluate(node.left, symbols) or evaluate(node.right, symbols)
-
-    else:
-        raise ValueError
-
-
-def _to_tuple(node):
-    if isinstance(node, Id):
-        return ('id', node.id)
-
-    elif isinstance(node, Not):
-        return ('not', node.node._to_tuple())
-
-    elif isinstance(node, And):
-        return ('and', self.left._to_tuple(), self.right._to_tuple())
-
-    elif isinstance(node, Or):
-        return ('or', self.left._to_tuple(), self.right._to_tuple())
 
     else:
         raise ValueError
