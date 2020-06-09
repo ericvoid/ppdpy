@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from ppdpy.exceptions import ExpressionSyntaxError
 from ppdpy.utility import listview
 
@@ -17,25 +18,30 @@ def lex(text:str):
     """
     Splits a text to a list of tokens.
     """
+    def _clear(token):
+        tl = token.lower()
+        return tl if tl in (TK_AND, TK_OR, TK_NOT) else token
+
     token = ''
+
     for char in text:
         if char == ' ':
             if token:
-                yield _clear_op(token)
+                yield _clear(token)
                 token = ''
 
             continue
 
         elif char == LP:
             if token:
-                yield _clear_op(token)
+                yield _clear(token)
                 token = ''
 
             yield LP
 
         elif char == RP:
             if token:
-                yield _clear_op(token)
+                yield _clear(token)
                 token = ''
 
             yield RP
@@ -44,13 +50,8 @@ def lex(text:str):
             token += char
 
     if token:
-        yield _clear_op(token)
+        yield _clear(token)
         token = ''
-
-
-def _clear_op(token):
-    tl = token.lower()
-    return tl if tl in (TK_AND, TK_OR, TK_NOT) else token
 
 
 def parse(tokens):
@@ -210,69 +211,63 @@ def _is_id(token:str) -> bool:
 
 class Node:
     def __eq__(self, other):
-        return self._to_tuple() == other._to_tuple()
+        return _to_tuple(self) == _to_tuple(other)
 
     def __ne__(self, other):
         return not self == other
 
-    def _to_tuple(self):
-        raise NotImplemented
 
-    def eval(self, symbols:set) -> bool:
-        raise NotImplemented
-
-
+@dataclass
 class Id(Node):
     id: str
 
-    def __init__(self, id:str):
-        self.id = id
 
-    def _to_tuple(self):
-        return ('id', self.id)
-
-    def eval(self, symbols:set) -> bool:
-        return self.id in symbols
-
-
+@dataclass
 class Not(Node):
-    n: Node
-
-    def __init__(self, node):
-        self.n = node
-
-    def _to_tuple(self):
-        return ('not', self.n._to_tuple())
-
-    def eval(self, symbols:set) -> bool:
-        return not self.n.eval(symbols)
+    node: Node
 
 
+@dataclass
 class And(Node):
     left: Node
     right: Node
 
-    def __init__(self, left, right):
-        self.left = left
-        self.right = right
 
-    def _to_tuple(self):
-        return ('and', self.left._to_tuple(), self.right._to_tuple())
-
-    def eval(self, symbols:set) -> bool:
-        return self.left.eval(symbols) and self.right.eval(symbols)
-
-
+@dataclass
 class Or(Node):
     left: Node
     right: Node
 
-    def __init__(self, left, right):
-        self.left = left
-        self.right = right
 
-    def _to_tuple(self):
+def evaluate(node, symbols):
+    if isinstance(node, Id):
+        return node.id in symbols
+
+    elif isinstance(node, Not):
+        return not evaluate(node.node, symbols)
+
+    elif isinstance(node, And):
+        return evaluate(node.left, symbols) and evaluate(node.right, symbols)
+
+    elif isinstance(node, Or):
+        return evaluate(node.left, symbols) or evaluate(node.right, symbols)
+
+    else:
+        raise ValueError
+
+
+def _to_tuple(node):
+    if isinstance(node, Id):
+        return ('id', node.id)
+
+    elif isinstance(node, Not):
+        return ('not', node.node._to_tuple())
+
+    elif isinstance(node, And):
+        return ('and', self.left._to_tuple(), self.right._to_tuple())
+
+    elif isinstance(node, Or):
         return ('or', self.left._to_tuple(), self.right._to_tuple())
 
-    def eval(self, symbols:set) -> bool:
-        return self.left.eval(symbols) or self.right.eval(symbols)
+    else:
+        raise ValueError

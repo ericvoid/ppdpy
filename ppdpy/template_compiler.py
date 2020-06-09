@@ -1,4 +1,8 @@
-from ppdpy.expression_compiler import compile as compile_expression
+from typing import List
+from dataclasses import dataclass
+from ppdpy.expression_compiler import compile as compile_expression, \
+    evaluate as evalexpr, \
+    Node as ExpressionNode
 from ppdpy.exceptions import DirectiveSyntaxError
 
 LINEBREAK = '\n'
@@ -48,6 +52,7 @@ def _parse_until(lines, end_directives):
 
             if l.startswith(PPD_PREFIX):
                 directive = _fetch_directive(l)
+
                 if directive in end_directives:
                     result.append(current_block)
                     return result, l
@@ -64,7 +69,7 @@ def _parse_until(lines, end_directives):
                     raise DirectiveSyntaxError('unexpected directive ' + directive)
 
             else:
-                current_block.add_text(line)
+                current_block.text += line + LINEBREAK
 
     except StopIteration:
         if end_directives:
@@ -117,42 +122,83 @@ def _fetch_expression(line):
         raise DirectiveSyntaxError()
 
 
+def render(template, symbols):
+    """
+    Renders a template using the given symbols
+    """
+    if not isinstance(template, Template):
+        raise ValueError('template should be an instance of Template')
+
+    if isinstance(symbols, dict):
+        symbols = set(symbols.keys())
+
+    else:
+        symbols = set(symbols)
+
+    return _render_sub_blocks(template, symbols)[:-len(LINEBREAK)]
+
+
+def _render_sub_blocks(entry, symbols):
+    return ''.join((_render_block(b, symbols) for b in entry.blocks))
+
+
+def _render_block(block, symbols):
+    def _render_conditional_block(ifblock, symbols):
+        for ifentry in ifblock.if_entries:
+            if isinstance(ifentry, IfEntry):
+                if evalexpr(ifentry.expression, symbols):
+                    return _render_sub_blocks(ifentry, symbols)
+
+            elif isinstance(ifentry, ElseEntry):
+                return _render_sub_blocks(ifentry, symbols)
+
+            else:
+                raise ValueError('unexpected conditional block type')
+
+        # none of the blocks applied
+        return ''
+
+    if isinstance(block, TextBlock):
+        return block.text
+
+    elif isinstance(block, IfBlock):
+        return _render_conditional_block(block, symbols)
+
+    else:
+        raise ValueError('unexpected block type')
+
+
+
+
+class Block:
+    pass
+
+
+@dataclass
 class Template:
     """
     A compiled text
     """
-    def __init__(self, blocks=[]):
-        self._blocks = blocks
+    blocks: List[Block]
 
     def render(self, symbols):
-        if isinstance(symbols, dict):
-            ss = set(symbols.keys())
-
-        else:
-            ss = set(symbols)
-
-        return ''.join([block.apply(ss) for block in self._blocks])[:-len(LINEBREAK)]
+        """
+        Shorthand for render(template, symbols)
+        """
+        return render(self, symbols)
 
 
-class TextBlock:
+@dataclass
+class TextBlock(Block):
     """
     A block of plain text.
     """
-    def __init__(self):
-        self.text = ''
-        self.lines = 0
-
-    def add_text(self, more):
-        self.text += more + LINEBREAK
-
-    def eval(self, symbols):
-        return True
-
-    def apply(self, symbols):
-        return self.text
+    text: str = ''
+    lines: int = 0
 
 
-class IfBlock:
+@dataclass
+class IfBlock(Block):
     """
     A block of if conditional in the following pattern:
         #if a
@@ -163,43 +209,20 @@ class IfBlock:
         ...
         #endif
     """
-    def __init__(self, if_entries):
-        self._if_entries = if_entries
-
-    def apply(self, symbols):
-        for entry in self._if_entries:
-            if entry.eval(symbols):
-                return entry.apply(symbols)
-
-        # none of the blocks applied
-        return ''
+    if_entries: List
 
 
+@dataclass
 class IfEntry:
     """
     A conditional entry composed of an expression and a text.
     When the expression evaluates to true, then the text is yielded,
     otherwise an empty string is yielded.
     """
-    def __init__(self, expression, blocks):
-        self._expression = expression
-        self._blocks = blocks
-
-    def eval(self, symbols):
-        return self._expression.eval(symbols)
-
-    def apply(self, symbols):
-        return ''.join([block.apply(symbols) for block in self._blocks])
+    expression: ExpressionNode
+    blocks: List[Block]
 
 
+@dataclass
 class ElseEntry:
-    """
-    """
-    def __init__(self, blocks):
-        self._blocks = blocks
-
-    def eval(self, symbols):
-        return True
-
-    def apply(self, symbols):
-        return ''.join([block.apply(symbols) for block in self._blocks])
+    blocks: List[Block]
