@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Tuple
 from dataclasses import dataclass
 from ppdpy.expression_compiler import compile as compile_expression, \
-    evaluate as evalexpr, \
-    Node as ExpressionNode
-from ppdpy.exceptions import DirectiveSyntaxError
+    evaluate as evaluate_expression, \
+    Node as ExpressionNode, \
+    TrueNode
+from ppdpy.exceptions import PpdPyError, DirectiveSyntaxError
 
 LINEBREAK = '\n'
 
@@ -32,14 +33,12 @@ set_directive_prefixes(PPD_PREFIX)
 def compile(lines):
     iterlines = iter(lines)
 
-    result = _parse(iterlines)
+    result, remainder = _parse_until(iterlines, tuple())
+
+    if remainder:
+        raise PpdPyError('parse ended unexpectedly')
+
     return Template(result)
-
-
-def _parse(lines):
-    result, remainder = _parse_until(lines, tuple())
-    return result
-
 
 def _parse_until(lines, end_directives):
     result = []
@@ -63,7 +62,7 @@ def _parse_until(lines, end_directives):
                         current_block = TextBlock()
 
                     if_entries = list(_parse_if_entries(l, lines))
-                    result.append(IfBlock(if_entries))
+                    result.append(ConditionalBlock(if_entries))
 
                 else:
                     raise DirectiveSyntaxError('unexpected directive ' + directive)
@@ -82,9 +81,15 @@ def _parse_until(lines, end_directives):
 
 def _parse_if_entries(last_line, lines):
     while True:
-        if_expression = compile_expression(_fetch_expression(last_line))
+        try:
+            expression_string = last_line.split(' ', maxsplit=1)[1]
+
+        except IndexError:
+            raise DirectiveSyntaxError()
+
+        if_expression = compile_expression(expression_string)
         if_blocks, last_line = _parse_until(lines, (_PPD_ELIF, _PPD_ELSE, _PPD_ENDIF))
-        yield IfEntry(if_expression, if_blocks)
+        yield (if_expression, if_blocks)
 
         next_directive = _fetch_directive(last_line)
         if next_directive == _PPD_ENDIF:
@@ -92,7 +97,7 @@ def _parse_if_entries(last_line, lines):
 
         elif next_directive == _PPD_ELSE:
             else_blocks, last_line = _parse_until(lines, (_PPD_ENDIF, ))
-            yield ElseEntry(else_blocks)
+            yield (TrueNode(), else_blocks)
             return
 
         elif next_directive != _PPD_ELIF:
@@ -114,14 +119,6 @@ def _fetch_directive(line):
         raise DirectiveSyntaxError()
 
 
-def _fetch_expression(line):
-    try:
-        return line.split(' ', maxsplit=1)[1]
-
-    except IndexError:
-        raise DirectiveSyntaxError()
-
-
 def render(template, symbols):
     """
     Renders a template using the given symbols
@@ -135,42 +132,28 @@ def render(template, symbols):
     else:
         symbols = set(symbols)
 
-    return _render_sub_blocks(template, symbols)[:-len(LINEBREAK)]
+    def _render_block(block):
+        if isinstance(block, TextBlock):
+            return block.text
+
+        elif isinstance(block, ConditionalBlock):
+            for expression, inner_blocks in block.if_entries:
+                if evaluate_expression(expression, symbols):
+                    return _render_block_list(inner_blocks)
+
+            # none of the blocks applied
+            return ''
+
+        else:
+            raise ValueError('unexpected block type')
+
+    def _render_block_list(blocks):
+        return ''.join((_render_block(block) for block in blocks))
+
+    return _render_block_list(template.blocks)[:-len(LINEBREAK)]
 
 
-def _render_sub_blocks(entry, symbols):
-    return ''.join((_render_block(b, symbols) for b in entry.blocks))
-
-
-def _render_block(block, symbols):
-    def _render_conditional_block(ifblock, symbols):
-        for ifentry in ifblock.if_entries:
-            if isinstance(ifentry, IfEntry):
-                if evalexpr(ifentry.expression, symbols):
-                    return _render_sub_blocks(ifentry, symbols)
-
-            elif isinstance(ifentry, ElseEntry):
-                return _render_sub_blocks(ifentry, symbols)
-
-            else:
-                raise ValueError('unexpected conditional block type')
-
-        # none of the blocks applied
-        return ''
-
-    if isinstance(block, TextBlock):
-        return block.text
-
-    elif isinstance(block, IfBlock):
-        return _render_conditional_block(block, symbols)
-
-    else:
-        raise ValueError('unexpected block type')
-
-
-
-
-class Block:
+class TemplateBlock:
     pass
 
 
@@ -179,7 +162,7 @@ class Template:
     """
     A compiled text
     """
-    blocks: List[Block]
+    blocks: List[TemplateBlock]
 
     def render(self, symbols):
         """
@@ -189,7 +172,7 @@ class Template:
 
 
 @dataclass
-class TextBlock(Block):
+class TextBlock(TemplateBlock):
     """
     A block of plain text.
     """
@@ -197,8 +180,11 @@ class TextBlock(Block):
     lines: int = 0
 
 
+ConditionalEntry = Tuple[ExpressionNode, List[TemplateBlock]]
+
+
 @dataclass
-class IfBlock(Block):
+class ConditionalBlock(TemplateBlock):
     """
     A block of if conditional in the following pattern:
         #if a
@@ -209,20 +195,4 @@ class IfBlock(Block):
         ...
         #endif
     """
-    if_entries: List
-
-
-@dataclass
-class IfEntry:
-    """
-    A conditional entry composed of an expression and a text.
-    When the expression evaluates to true, then the text is yielded,
-    otherwise an empty string is yielded.
-    """
-    expression: ExpressionNode
-    blocks: List[Block]
-
-
-@dataclass
-class ElseEntry:
-    blocks: List[Block]
+    if_entries: List[ConditionalEntry]

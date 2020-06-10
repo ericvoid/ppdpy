@@ -235,6 +235,11 @@ class Or(Node):
     right: Node
 
 
+@dataclass
+class TrueNode(Node):
+    pass
+
+
 def evaluate(node, symbols):
     if isinstance(node, Id):
         return node.id in symbols
@@ -247,6 +252,9 @@ def evaluate(node, symbols):
 
     elif isinstance(node, Or):
         return evaluate(node.left, symbols) or evaluate(node.right, symbols)
+
+    elif isinstance(node, TrueNode):
+        return True
 
     else:
         raise ValueError
